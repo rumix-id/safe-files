@@ -1,4 +1,4 @@
-# 🛡️ Safe.Files Protecting Tool v1.0.0
+# 🛡️ Safe.Files Protecting Tool
 
 Safe.Files is a CLI (Command Line Interface)-based application designed to secure various file types using industry-standard AES-256 GCM (Authenticated Encryption). It is built in Go for maximum speed and reliability.
 
