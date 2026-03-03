@@ -12,7 +12,7 @@ Safe.Files is a CLI (Command Line Interface)-based application designed to secur
 * **Version:** 1.0.0-stable
 * **Language:** Go (Golang)
 * **Algorithm:** AES-256-GCM
-* **Platform:** Windows (Optimized with Version Info & Icon)
+* **Platform:** Windows
 
 ## 📂 Folder Structure
 This program automatically manages the following directories:
