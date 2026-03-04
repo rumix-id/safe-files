@@ -1,17 +1,17 @@
 # 🛡️ Safe.Files Protecting Tool
 
-Safe.Files is a CLI (Command Line Interface)-based application designed to secure various file types using industry-standard AES-256 GCM (Authenticated Encryption). It is built in Go for maximum speed and reliability.
+Safe.Files is a CLI (Command Line Interface)-based application designed to secure various file types using industry-standard Argon2id + AES-256-GCM (Authenticated Encryption). It is built in Go for maximum speed and reliability.
 
 ## ✨ Key Features
-* High-Level Security: Uses the AES-256 GCM algorithm to ensure data confidentiality and integrity.
+* High-Level Security: Uses the Argon2id + AES-256-GCM algorithm to ensure data confidentiality and integrity.
 * Automatic Format Recovery: Automatically restores the original file name and extension (such as .pdf, .docx, .jpg) after decryption.
 * Encrypted Database: Stores recovery codes and metadata in a protected `system.db` database.
 * Unique Recovery Log: Generates a recovery text file in the `recovery/` folder with a unique, time-stamped name to prevent overwriting previous logs.
 
 ## 🚀 Technical Details
-* **Version:** 1.0.1-update minor
+* **Version:** 2.0.0-Update
 * **Language:** Go (Golang)
-* **Algorithm:** AES-256-GCM
+* **Algorithm:** Argon2id + AES-256-GCM
 * **Platform:** Windows
 
 ## 📂 Folder Structure
@@ -26,11 +26,15 @@ This project uses `go-winres` to include icon and version information in the `.e
 
 1. **Prepare Resources:**
 Make sure the `winres/` folder contains `winres.json` and your icon image file.
-2. **Generate Resource Object:**
+2. **if go.mod is having problems**
+```go
+go mod tidy
+```
+3. **Generate Resource Object:**
 ```go
 go-winres make
 ```
-3. **Compile to EXE:**
+4. **Compile to EXE:**
 ```go
 go build
 ```
