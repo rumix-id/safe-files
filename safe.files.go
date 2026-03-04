@@ -5,7 +5,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,6 +18,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/sqweek/dialog"
+	"golang.org/x/crypto/argon2"
 )
 
 var (
@@ -27,6 +28,13 @@ var (
 	white  = color.New(color.FgWhite).SprintFunc()
 	dbKey  = []byte("Rumix-id-Secure-Internal-DB-K3y!")
 	reader = bufio.NewReader(os.Stdin)
+)
+
+const (
+	timeCost   = 1
+	memoryCost = 64 * 1024
+	threads    = 4
+	keyLen     = 32
 )
 
 func main() {
@@ -70,14 +78,14 @@ func showBanner() {
 \___ \ / _` + "`" + ` | |_ / _ \ | |_  | | |/ _ \/ __|
  ___) | (_| |  _|  __/_|  _| | | |  __/\__ \
 |____/ \__,_|_|  \___(_)_|   |_|_|\___||___/`))
-	fmt.Println("\n      Safe.Files Protecting Tool by Rumix-id")
+	fmt.Println("\n   Safe.Files Protecting Tool by Rumix-id   ")
 	fmt.Println("----------------------------------------------")
-	fmt.Println("Encryption and Decryption Using AES-GCM Security")
+	fmt.Println("        Argon2id + AES-256-GCM                ")
 	fmt.Println()
 }
 
 func handleEncryption() {
-	fmt.Println("\n[ AES-GCM ] Encryption")
+	fmt.Println("\n[ Argon2id + AES-256-GCM ] Encryption")
 	fmt.Println("Please select the files to be encrypted - Open File Explorer")
 
 	filePath, err := dialog.File().Title("Select File").Load()
@@ -91,17 +99,31 @@ func handleEncryption() {
 	fmt.Println(yellow(filePath))
 
 	fmt.Print("\n[ Add Password ]\nAdd password for your file : ")
-	rawPassword := readString()
-	if rawPassword == "" {
+	rawInput := readString()
+	if rawInput == "" {
 		fmt.Println(red("You must enter a password!"))
 		pressEnterToReturn()
 		return
 	}
 
-	// Membuat hash dari password asli untuk dijadikan kunci utama
-	passHash := sha256.Sum256([]byte(rawPassword))
-	password := fmt.Sprintf("%x", passHash)
-	fmt.Printf("This is an encrypted password : %s\n", password)
+	fmt.Println("\n[ Deriving Key with Argon2id... ]")
+
+	salt := make([]byte, 16)
+	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
+		fmt.Println(red("Gagal membuat salt!"))
+		return
+	}
+
+	passHash := argon2.IDKey([]byte(rawInput), salt, timeCost, memoryCost, threads, keyLen)
+
+	// Zeroing RAM: Poin 5
+	rawInputBytes := []byte(rawInput)
+	for i := range rawInputBytes {
+		rawInputBytes[i] = 0
+	}
+
+	passwordHex := hex.EncodeToString(passHash)
+	fmt.Printf("This is an encrypted password : %s\n", passwordHex)
 
 	fmt.Println("\n[ Additional for Recovery ]")
 	fmt.Println("This is the recovery password, use a unique word or code that is easy to remember.")
@@ -119,15 +141,15 @@ func handleEncryption() {
 	destPath := filepath.Join("enc", outName)
 
 	fmt.Println("\n[ Encryption Process ]")
-	stop := make(chan bool)
+	stop := make(chan bool, 1)
 	go loadingAnimation("...", stop)
 
 	origFileName := filepath.Base(filePath)
-	err = encryptFile(filePath, destPath, password, origFileName, recovery)
+	err = encryptFileStream(filePath, destPath, passHash, salt, origFileName, recovery)
 	stop <- true
 
 	if err != nil {
-		fmt.Printf("\n%s\n", red("Encryption failed: File already exists or access denied."))
+		fmt.Printf("\n%s: %v\n", red("Encryption failed"), err)
 	} else {
 		fmt.Println(green("\nDone, Your file has been secured and encrypted."))
 		openExplorer("enc")
@@ -136,15 +158,12 @@ func handleEncryption() {
 }
 
 func handleDecryption() {
-	fmt.Println("\n[ AES-GCM ] Decryption")
+	fmt.Println("\n[ Argon2id + AES-256-GCM ] Decryption")
 	fmt.Println("Please select the file to be decrypted - Open File Explorer")
-	fmt.Println("Wait...")
 
 	absEnc, _ := filepath.Abs("enc")
 	filePath, err := dialog.File().SetStartDir(absEnc).Title("Select File to Decrypt").Load()
 	if err != nil || filePath == "" {
-		fmt.Println(red("\nWarning: Action canceled!"))
-		pressEnterToReturn()
 		return
 	}
 
@@ -152,26 +171,25 @@ func handleDecryption() {
 	fmt.Println(yellow(filePath))
 
 	fmt.Println("\n[ Enter Password ]")
-	fmt.Println("Hint: Ctrl + V or Right Click to paste password")
-	fmt.Print("Enter your file password (Encrypted Hash): ")
+	fmt.Println("Hint: Enter the Encrypted Hash you received during encryption")
+	fmt.Print("Enter your file password (Hash): ")
 	password := readString()
 
 	if password == "" {
-		fmt.Println(red("You must enter the encrypted hash!"))
+		fmt.Println(red("You must enter the hash!"))
 		pressEnterToReturn()
 		return
 	}
 
 	fmt.Println("\n[ Decryption Process ]")
-	stop := make(chan bool)
+	stop := make(chan bool, 1)
 	go loadingAnimation("...", stop)
 
-	err = decryptFile(filePath, password)
-	stop <- true
+	err = decryptFileStream(filePath, password)
+	stop <- true // Pastikan loading dimatikan sebelum pesan error muncul
 
 	if err != nil {
-		fmt.Println(red("\nYour password is incorrect!"))
-		fmt.Println(red("Decryption failed."))
+		fmt.Printf("\n%s: %v\n", red("Decryption failed"), err)
 	} else {
 		fmt.Println(green("\nDone, Your file has been decrypted successfully."))
 		openExplorer("dec")
@@ -182,13 +200,10 @@ func handleDecryption() {
 func handleRecovery() {
 	fmt.Println("\n[ Password Recovery ]")
 	fmt.Println("Please select the file for recovery - Open File Explorer")
-	fmt.Println("Wait...")
 
 	absEnc, _ := filepath.Abs("enc")
 	filePath, err := dialog.File().SetStartDir(absEnc).Title("Select File for Recovery").Load()
 	if err != nil || filePath == "" {
-		fmt.Println(red("\nWarning: Action canceled!"))
-		pressEnterToReturn()
 		return
 	}
 
@@ -199,106 +214,150 @@ func handleRecovery() {
 	recoveryCodeInput := readString()
 
 	fmt.Println("\n[ Recovery Process ]")
-	stop := make(chan bool)
-	go loadingAnimation("Searching the database.", stop)
-	time.Sleep(1 * time.Second)
+	stop := make(chan bool, 1)
+	go loadingAnimation("Searching database", stop)
 
 	dbPath := filepath.Join("db", "system.db")
 	content, err := os.ReadFile(dbPath)
 	stop <- true
 
 	if err != nil {
-		fmt.Println(red("\nDatabase not found! Password recovery failed."))
+		fmt.Println(red("\nDatabase not found!"))
 		pressEnterToReturn()
 		return
 	}
 
-	decDB, _ := decryptInternal(content)
+	decDB, err := decryptInternal(content)
+	if err != nil {
+		fmt.Println(red("\nDatabase error!"))
+		pressEnterToReturn()
+		return
+	}
 	var data map[string]interface{}
 	json.Unmarshal(decDB, &data)
 
 	fileNameOnly := filepath.Base(filePath)
 
 	if entry, ok := data[fileNameOnly].(map[string]interface{}); ok {
-		savedCode := entry["code"].(string)
-		originalPass := entry["pass"].(string)
-
-		if recoveryCodeInput == savedCode {
-			fmt.Println("\n[ Password Recovered Successfully ]")
-			fmt.Println(green("Congratulations! Password recovery successful."))
+		if recoveryCodeInput == entry["code"].(string) {
+			fmt.Println(green("\nCongratulations! Password recovery successful."))
+			fmt.Printf("\nYour Hash: %s\n", yellow(entry["pass"].(string)))
 
 			dt := time.Now()
-			recFileName := fmt.Sprintf("rec-%s %d-%d-%d.txt", fileNameOnly, dt.Day(), int(dt.Month()), dt.Year()%100)
-			recContent := fmt.Sprintf("File Name: %s\nOriginal Password (Hash): %s\nRecovery Date: %s", fileNameOnly, originalPass, dt.Format("2006-01-02 15:04:05"))
+			recFileName := fmt.Sprintf("rec-%s.txt", fileNameOnly)
+			recContent := fmt.Sprintf("File: %s\nHash: %s\nDate: %s", fileNameOnly, entry["pass"].(string), dt.Format("2006-01-02 15:04:05"))
 			_ = os.WriteFile(filepath.Join("recovery", recFileName), []byte(recContent), 0644)
-
+			fmt.Println(green("Info saved in 'recovery' folder."))
 			openExplorer("recovery")
 		} else {
-			fmt.Println(red("\nIncorrect recovery code! Password recovery failed."))
+			fmt.Println(red("\nIncorrect recovery code!"))
 		}
 	} else {
-		fmt.Println(red("\nFile not recognized in the database! Password recovery failed."))
+		fmt.Println(red("\nFile not recognized!"))
 	}
 	pressEnterToReturn()
 }
 
-// --- CORE ENGINE ---
-
-func encryptFile(src, dst, pass, origName, recovery string) error {
-	plaintext, err := os.ReadFile(src)
+func encryptFileStream(src, dst string, key, salt []byte, origName, recovery string) error {
+	inFile, err := os.Open(src)
 	if err != nil {
 		return err
 	}
+	defer inFile.Close()
 
-	// Menggunakan string pass (hash) secara langsung sebagai key
-	key := sha256.Sum256([]byte(pass))
-	block, _ := aes.NewCipher(key[:])
-	gcm, _ := cipher.NewGCM(block)
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return err
+	}
 
 	nonce := make([]byte, gcm.NonceSize())
-	io.ReadFull(rand.Reader, nonce)
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return err
+	}
 
+	outFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer outFile.Close()
+
+	// Header: Nonce (12) + Salt (16)
+	outFile.Write(nonce)
+	outFile.Write(salt)
+
+	plaintext, err := io.ReadAll(inFile)
+	if err != nil {
+		return err
+	}
+
+	// Gabungkan nama asli ke dalam enkripsi
 	dataWithHeader := append([]byte(origName+"|"), plaintext...)
-	ciphertext := gcm.Seal(nonce, nonce, dataWithHeader, nil)
+	ciphertext := gcm.Seal(nil, nonce, dataWithHeader, nil)
 
-	updateDB(filepath.Base(dst), recovery, pass)
-	return os.WriteFile(dst, ciphertext, 0644)
+	if _, err := outFile.Write(ciphertext); err != nil {
+		return err
+	}
+
+	return updateDB(filepath.Base(dst), recovery, hex.EncodeToString(key))
 }
 
-func decryptFile(src, pass string) error {
-	ciphertext, err := os.ReadFile(src)
+func decryptFileStream(src, passHex string) error {
+	inFile, err := os.Open(src)
 	if err != nil {
 		return err
+	}
+	defer inFile.Close()
+
+	key, err := hex.DecodeString(passHex)
+	if err != nil {
+		return fmt.Errorf("invalid hash format")
 	}
 
-	// Menggunakan string pass (hash) secara langsung
-	key := sha256.Sum256([]byte(pass))
-	block, err := aes.NewCipher(key[:])
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return err
 	}
-	gcm, _ := cipher.NewGCM(block)
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return err
+	}
 
 	ns := gcm.NonceSize()
-	if len(ciphertext) < ns {
-		return fmt.Errorf("invalid file structure")
+	nonce := make([]byte, ns)
+	if _, err := io.ReadAtLeast(inFile, nonce, ns); err != nil {
+		return fmt.Errorf("missing nonce")
 	}
 
-	nonce, ciphertext := ciphertext[:ns], ciphertext[ns:]
+	salt := make([]byte, 16)
+	if _, err := io.ReadAtLeast(inFile, salt, 16); err != nil {
+		return fmt.Errorf("missing salt")
+	}
+
+	ciphertext, err := io.ReadAll(inFile)
+	if err != nil {
+		return err
+	}
+
 	decrypted, err := gcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
-		return err // Gagal jika input bukan hash yang benar
+		return fmt.Errorf("incorrect password or corrupted data")
+	}
+
+	// Zeroing RAM key
+	for i := range key {
+		key[i] = 0
 	}
 
 	parts := strings.SplitN(string(decrypted), "|", 2)
 	if len(parts) < 2 {
-		return fmt.Errorf("invalid header format")
+		return fmt.Errorf("invalid file header")
 	}
 
-	origName := parts[0]
-	actualContent := []byte(parts[1])
-
-	return os.WriteFile(filepath.Join("dec", origName), actualContent, 0644)
+	return os.WriteFile(filepath.Join("dec", parts[0]), []byte(parts[1]), 0644)
 }
 
 func updateDB(fileName, recovery, pass string) error {
@@ -306,22 +365,22 @@ func updateDB(fileName, recovery, pass string) error {
 	data := make(map[string]interface{})
 
 	if content, err := os.ReadFile(dbPath); err == nil {
-		dec, _ := decryptInternal(content)
-		json.Unmarshal(dec, &data)
+		dec, err := decryptInternal(content)
+		if err == nil {
+			json.Unmarshal(dec, &data)
+		}
 	}
-
-	data[fileName] = map[string]string{
-		"code": recovery,
-		"pass": pass,
-	}
-
+	data[fileName] = map[string]string{"code": recovery, "pass": pass}
 	jsonData, _ := json.Marshal(data)
 	enc, _ := encryptInternal(jsonData)
 	return os.WriteFile(dbPath, enc, 0644)
 }
 
 func encryptInternal(data []byte) ([]byte, error) {
-	block, _ := aes.NewCipher(dbKey)
+	block, err := aes.NewCipher(dbKey)
+	if err != nil {
+		return nil, err
+	}
 	gcm, _ := cipher.NewGCM(block)
 	nonce := make([]byte, gcm.NonceSize())
 	io.ReadFull(rand.Reader, nonce)
@@ -329,17 +388,19 @@ func encryptInternal(data []byte) ([]byte, error) {
 }
 
 func decryptInternal(data []byte) ([]byte, error) {
-	block, _ := aes.NewCipher(dbKey)
+	block, err := aes.NewCipher(dbKey)
+	if err != nil {
+		return nil, err
+	}
 	gcm, _ := cipher.NewGCM(block)
 	ns := gcm.NonceSize()
 	if len(data) < ns {
-		return nil, fmt.Errorf("database corrupted")
+		return nil, fmt.Errorf("db too small")
 	}
 	return gcm.Open(nil, data[:ns], data[ns:], nil)
 }
 
-// --- UTILS ---
-
+// UTILS
 func readString() string {
 	text, _ := reader.ReadString('\n')
 	return strings.TrimSpace(text)
@@ -353,7 +414,7 @@ func pressEnterToReturn() {
 func initFolders() {
 	folders := []string{"enc", "dec", "recovery", "db"}
 	for _, f := range folders {
-		os.MkdirAll(f, os.ModePerm)
+		os.MkdirAll(f, 0755)
 	}
 }
 
@@ -389,7 +450,7 @@ func openExplorer(path string) {
 }
 
 func handleExit() {
-	fmt.Println("\n" + white("Thank you for using Safe.Files Protecting Tool!"))
+	fmt.Println("\n" + white("Thank you for using Rumix Tools!"))
 	time.Sleep(1 * time.Second)
 	os.Exit(0)
 }
