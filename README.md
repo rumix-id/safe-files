@@ -9,7 +9,7 @@ Safe.Files is a CLI (Command Line Interface)-based application designed to secur
 * Unique Recovery Log: Generates a recovery text file in the `recovery/` folder with a unique, time-stamped name to prevent overwriting previous logs.
 
 ## 🚀 Technical Details
-* **Version:** 1.0.0-stable
+* **Version:** 1.0.1-update minor
 * **Language:** Go (Golang)
 * **Algorithm:** AES-256-GCM
 * **Platform:** Windows
