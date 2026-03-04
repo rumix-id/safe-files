@@ -91,12 +91,17 @@ func handleEncryption() {
 	fmt.Println(yellow(filePath))
 
 	fmt.Print("\n[ Add Password ]\nAdd password for your file : ")
-	password := readString()
-	if password == "" {
+	rawPassword := readString()
+	if rawPassword == "" {
 		fmt.Println(red("You must enter a password!"))
 		pressEnterToReturn()
 		return
 	}
+
+	// Membuat hash dari password asli untuk dijadikan kunci utama
+	passHash := sha256.Sum256([]byte(rawPassword))
+	password := fmt.Sprintf("%x", passHash)
+	fmt.Printf("This is an encrypted password : %s\n", password)
 
 	fmt.Println("\n[ Additional for Recovery ]")
 	fmt.Println("This is the recovery password, use a unique word or code that is easy to remember.")
@@ -148,8 +153,14 @@ func handleDecryption() {
 
 	fmt.Println("\n[ Enter Password ]")
 	fmt.Println("Hint: Ctrl + V or Right Click to paste password")
-	fmt.Print("Enter your file password: ")
+	fmt.Print("Enter your file password (Encrypted Hash): ")
 	password := readString()
+
+	if password == "" {
+		fmt.Println(red("You must enter the encrypted hash!"))
+		pressEnterToReturn()
+		return
+	}
 
 	fmt.Println("\n[ Decryption Process ]")
 	stop := make(chan bool)
@@ -190,7 +201,7 @@ func handleRecovery() {
 	fmt.Println("\n[ Recovery Process ]")
 	stop := make(chan bool)
 	go loadingAnimation("Searching the database.", stop)
-	time.Sleep(1 * time.Second) // Memberikan jeda agar user bisa melihat proses
+	time.Sleep(1 * time.Second)
 
 	dbPath := filepath.Join("db", "system.db")
 	content, err := os.ReadFile(dbPath)
@@ -217,9 +228,8 @@ func handleRecovery() {
 			fmt.Println(green("Congratulations! Password recovery successful."))
 
 			dt := time.Now()
-			// Membuat nama file unik agar tidak menimpa file lama
 			recFileName := fmt.Sprintf("rec-%s %d-%d-%d.txt", fileNameOnly, dt.Day(), int(dt.Month()), dt.Year()%100)
-			recContent := fmt.Sprintf("File Name: %s\nOriginal Password: %s\nRecovery Date: %s", fileNameOnly, originalPass, dt.Format("2006-01-02 15:04:05"))
+			recContent := fmt.Sprintf("File Name: %s\nOriginal Password (Hash): %s\nRecovery Date: %s", fileNameOnly, originalPass, dt.Format("2006-01-02 15:04:05"))
 			_ = os.WriteFile(filepath.Join("recovery", recFileName), []byte(recContent), 0644)
 
 			openExplorer("recovery")
@@ -240,6 +250,7 @@ func encryptFile(src, dst, pass, origName, recovery string) error {
 		return err
 	}
 
+	// Menggunakan string pass (hash) secara langsung sebagai key
 	key := sha256.Sum256([]byte(pass))
 	block, _ := aes.NewCipher(key[:])
 	gcm, _ := cipher.NewGCM(block)
@@ -260,6 +271,7 @@ func decryptFile(src, pass string) error {
 		return err
 	}
 
+	// Menggunakan string pass (hash) secara langsung
 	key := sha256.Sum256([]byte(pass))
 	block, err := aes.NewCipher(key[:])
 	if err != nil {
@@ -275,7 +287,7 @@ func decryptFile(src, pass string) error {
 	nonce, ciphertext := ciphertext[:ns], ciphertext[ns:]
 	decrypted, err := gcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
-		return err
+		return err // Gagal jika input bukan hash yang benar
 	}
 
 	parts := strings.SplitN(string(decrypted), "|", 2)
@@ -359,7 +371,7 @@ func loadingAnimation(text string, stop chan bool) {
 	for {
 		select {
 		case <-stop:
-			fmt.Print("\r") // Membersihkan baris animasi saat berhenti
+			fmt.Print("\r")
 			return
 		default:
 			fmt.Printf("\rPlease Wait... %s %s", text, msgs[i%4])
