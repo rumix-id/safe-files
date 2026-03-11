@@ -14,7 +14,7 @@ Safe.Files is a CLI (Command Line Interface)-based application designed to secur
 * **Algorithm:** Argon2id + AES-256-GCM
 * **Platform:** Windows
 
-## 📂 Folder Structure
+## 📂 Folder Program
 This program automatically manages the following directories:
 * **`enc/`**: Where encrypted files are stored.
 * **`dec/`**: Where decrypted files are stored (returned to their original format).
@@ -37,4 +37,15 @@ go-winres make
 4. **Compile to EXE:**
 ```go
 go build
+```
+## 📂 Folder Structure
+```text
+safe-files
+├── winres     # Windows Resource files (icon, application metadata, manifest)
+├── LICENSE    # Software usage license
+├── README.md  # Main project documentation
+├── go.mod     # Go module definitions and project dependencies
+├── go.sum     # Security checksums for Go dependencies
+├── safe-files.exe   # Executable (binary) build file for Windows
+└── safe.files.go    # Main Go application source code
 ```
