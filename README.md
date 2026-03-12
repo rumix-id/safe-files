@@ -1,6 +1,7 @@
 # 🛡️ Safe.Files Protecting Tool
 
 Safe.Files is a CLI (Command Line Interface)-based application designed to secure various file types using industry-standard Argon2id + AES-256-GCM (Authenticated Encryption). It is built in Go for maximum speed and reliability.
+
 ![Demo](screenshots/safe-file.gif)
 ## ✨ Key Features
 * High-Level Security: Uses the Argon2id + AES-256-GCM algorithm to ensure data confidentiality and integrity.
